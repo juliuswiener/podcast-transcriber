@@ -138,6 +138,8 @@ def transcribe_endpoint():
         })
     except requests.RequestException as e:
         return jsonify({"error": f"Failed to download: {e}"}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
     finally:
         if file_path and os.path.exists(file_path):
             os.remove(file_path)
