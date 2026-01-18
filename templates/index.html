@@ -202,6 +202,23 @@
         .footer a:hover {
             text-decoration: underline;
         }
+        .view-toggle {
+            margin-bottom: 1rem;
+            text-align: center;
+        }
+        .view-toggle button {
+            background: #6c757d;
+            margin: 0 0.25rem;
+        }
+        .view-toggle button.active {
+            background: #007bff;
+        }
+        .view-toggle button:hover {
+            opacity: 0.9;
+        }
+        .result.hidden {
+            display: none !important;
+        }
         .divider {
             text-align: center;
             color: #999;
@@ -271,12 +288,17 @@
 
     <div class="error" id="error"></div>
 
+    <div class="view-toggle" id="viewToggle" style="display: none;">
+        <button id="showSummary" class="active">Summary</button>
+        <button id="showTranscript">Transcript</button>
+    </div>
+
     <div class="result" id="summaryResult">
         <h2>Summary</h2>
         <pre id="summaryText"></pre>
     </div>
 
-    <div class="result" id="transcriptResult">
+    <div class="result hidden" id="transcriptResult">
         <h2>Transcript</h2>
         <pre id="transcriptText"></pre>
     </div>
@@ -333,8 +355,7 @@
                 // Populate the results
                 document.getElementById('summaryText').textContent = item.summary;
                 document.getElementById('transcriptText').textContent = item.transcript;
-                document.getElementById('summaryResult').style.display = 'block';
-                document.getElementById('transcriptResult').style.display = 'block';
+                showResults();
 
                 // Scroll to results
                 document.getElementById('summaryResult').scrollIntoView({ behavior: 'smooth' });
@@ -342,6 +363,32 @@
                 alert('Failed to load history item: ' + err.message);
             }
         }
+
+        // Show results and toggle
+        function showResults() {
+            document.getElementById('summaryResult').style.display = 'block';
+            document.getElementById('transcriptResult').classList.add('hidden');
+            document.getElementById('viewToggle').style.display = 'block';
+            document.getElementById('showSummary').classList.add('active');
+            document.getElementById('showTranscript').classList.remove('active');
+        }
+
+        // View toggle handlers
+        document.getElementById('showSummary').addEventListener('click', () => {
+            document.getElementById('summaryResult').style.display = 'block';
+            document.getElementById('summaryResult').classList.remove('hidden');
+            document.getElementById('transcriptResult').classList.add('hidden');
+            document.getElementById('showSummary').classList.add('active');
+            document.getElementById('showTranscript').classList.remove('active');
+        });
+
+        document.getElementById('showTranscript').addEventListener('click', () => {
+            document.getElementById('transcriptResult').style.display = 'block';
+            document.getElementById('transcriptResult').classList.remove('hidden');
+            document.getElementById('summaryResult').classList.add('hidden');
+            document.getElementById('showTranscript').classList.add('active');
+            document.getElementById('showSummary').classList.remove('active');
+        });
 
         // Toggle history visibility
         document.getElementById('historyToggle').addEventListener('click', () => {
@@ -386,6 +433,7 @@
             error.style.display = 'none';
             summaryResult.style.display = 'none';
             transcriptResult.style.display = 'none';
+            document.getElementById('viewToggle').style.display = 'none';
             statusMessages.style.display = 'block';
             statusList.innerHTML = '';
             form.querySelector('button').disabled = true;
@@ -432,8 +480,7 @@
                                     // Processing complete, show results
                                     document.getElementById('summaryText').textContent = data.result.summary;
                                     document.getElementById('transcriptText').textContent = data.result.transcript;
-                                    summaryResult.style.display = 'block';
-                                    transcriptResult.style.display = 'block';
+                                    showResults();
 
                                     // Reload history
                                     loadHistory();
