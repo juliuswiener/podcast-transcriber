@@ -86,9 +86,40 @@ LENGTH_PROMPTS = {
     "long": "Provide a detailed, comprehensive summary covering all major topics, arguments, and conclusions.",
 }
 
+# JSON schema for structured summary output
+SUMMARY_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "title": {
+            "type": "string",
+            "description": "A concise title for the podcast content"
+        },
+        "summary": {
+            "type": "string",
+            "description": "The main summary text following the requested length"
+        },
+        "key_points": {
+            "type": "array",
+            "description": "List of key points or takeaways",
+            "items": {
+                "type": "string"
+            }
+        },
+        "topics": {
+            "type": "array",
+            "description": "Main topics discussed",
+            "items": {
+                "type": "string"
+            }
+        }
+    },
+    "required": ["title", "summary", "key_points", "topics"],
+    "additionalProperties": False
+}
+
 
 def summarize(transcript: str, language: str = "English", length: str = "medium", status_callback: Optional[Callable[[str], None]] = None) -> str:
-    """Summarize transcript using GPT."""
+    """Summarize transcript using GPT with structured output."""
     length_instruction = LENGTH_PROMPTS.get(length, LENGTH_PROMPTS["medium"])
 
     msg = f"Generating {length} summary in {language}..."
@@ -101,15 +132,41 @@ def summarize(transcript: str, language: str = "English", length: str = "medium"
         messages=[
             {
                 "role": "system",
-                "content": f"You are a helpful assistant that summarizes podcast transcripts. {length_instruction} Write the summary in {language}."
+                "content": f"You are a helpful assistant that summarizes podcast transcripts. {length_instruction} Write the summary in {language}. Provide structured output with a title, summary, key points, and topics."
             },
             {
                 "role": "user",
                 "content": f"Please summarize this podcast transcript:\n\n{transcript}"
             }
-        ]
+        ],
+        response_format={
+            "type": "json_schema",
+            "json_schema": {
+                "name": "podcast_summary",
+                "strict": True,
+                "schema": SUMMARY_SCHEMA
+            }
+        }
     )
-    return response.choices[0].message.content
+
+    # Parse the structured response
+    result = json.loads(response.choices[0].message.content)
+
+    # Format the structured output into a readable text
+    formatted_output = f"# {result['title']}\n\n"
+    formatted_output += f"{result['summary']}\n\n"
+
+    if result['key_points']:
+        formatted_output += "## Key Points\n"
+        for point in result['key_points']:
+            formatted_output += f"- {point}\n"
+        formatted_output += "\n"
+
+    if result['topics']:
+        formatted_output += "## Topics Covered\n"
+        formatted_output += ", ".join(result['topics'])
+
+    return formatted_output
 
 
 @transcriber.route("/")
