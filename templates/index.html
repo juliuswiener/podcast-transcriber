@@ -410,12 +410,17 @@
 
         document.getElementById('uploadForm').addEventListener('submit', async (e) => {
             e.preventDefault();
+            console.log('[Form Submit] Form submitted');
 
             const form = e.target;
             const url = form.url.value.trim();
             const file = form.file.files[0];
 
+            console.log('[Form Submit] URL:', url);
+            console.log('[Form Submit] File:', file ? file.name : 'None');
+
             if (!url && !file) {
+                console.log('[Form Submit] Error: No URL or file provided');
                 alert('Please provide a URL or upload a file');
                 return;
             }
@@ -429,6 +434,7 @@
             const statusList = document.getElementById('statusList');
 
             // Reset UI
+            console.log('[Form Submit] Resetting UI');
             loading.style.display = 'block';
             error.style.display = 'none';
             summaryResult.style.display = 'none';
@@ -439,22 +445,31 @@
             form.querySelector('button').disabled = true;
 
             try {
+                console.log('[Form Submit] Sending fetch request to /transcribe-stream');
                 const response = await fetch('/transcribe-stream', {
                     method: 'POST',
                     body: formData
                 });
 
+                console.log('[Form Submit] Response received:', response.status, response.statusText);
+
                 if (!response.ok) {
+                    console.log('[Form Submit] Response not OK, throwing error');
                     throw new Error('Server error: ' + response.statusText);
                 }
 
+                console.log('[SSE] Starting to read stream');
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
                 let buffer = '';
+                let messageCount = 0;
 
                 while (true) {
                     const { done, value } = await reader.read();
-                    if (done) break;
+                    if (done) {
+                        console.log('[SSE] Stream done');
+                        break;
+                    }
 
                     buffer += decoder.decode(value, { stream: true });
                     const lines = buffer.split('\n');
@@ -462,37 +477,56 @@
 
                     for (const line of lines) {
                         if (line.startsWith('data: ')) {
-                            const data = JSON.parse(line.slice(6));
+                            messageCount++;
+                            const jsonStr = line.slice(6);
+                            console.log(`[SSE] Message ${messageCount}:`, jsonStr.substring(0, 100));
 
-                            if (data.error) {
-                                throw new Error(data.error);
-                            } else if (data.status) {
-                                const statusDiv = document.createElement('div');
-                                statusDiv.className = 'status-message';
-                                if (data.status === 'Complete' || data.status === 'Processing complete!') {
-                                    statusDiv.className += ' success';
+                            try {
+                                const data = JSON.parse(jsonStr);
+
+                                if (data.error) {
+                                    console.log('[SSE] Error received:', data.error);
+                                    throw new Error(data.error);
+                                } else if (data.status) {
+                                    console.log('[SSE] Status:', data.status);
+                                    const statusDiv = document.createElement('div');
+                                    statusDiv.className = 'status-message';
+                                    if (data.status === 'Complete' || data.status === 'Processing complete!') {
+                                        statusDiv.className += ' success';
+                                    }
+                                    statusDiv.textContent = data.status;
+                                    statusList.appendChild(statusDiv);
+                                    statusList.scrollTop = statusList.scrollHeight;
+
+                                    if (data.result) {
+                                        console.log('[SSE] Result received, displaying...');
+                                        // Processing complete, show results
+                                        document.getElementById('summaryText').textContent = data.result.summary;
+                                        document.getElementById('transcriptText').textContent = data.result.transcript;
+                                        showResults();
+
+                                        // Reload history
+                                        loadHistory();
+                                    }
                                 }
-                                statusDiv.textContent = data.status;
-                                statusList.appendChild(statusDiv);
-                                statusList.scrollTop = statusList.scrollHeight;
-
-                                if (data.result) {
-                                    // Processing complete, show results
-                                    document.getElementById('summaryText').textContent = data.result.summary;
-                                    document.getElementById('transcriptText').textContent = data.result.transcript;
-                                    showResults();
-
-                                    // Reload history
-                                    loadHistory();
-                                }
+                            } catch (parseErr) {
+                                console.error('[SSE] JSON parse error:', parseErr, 'Raw:', jsonStr);
+                                throw parseErr;
                             }
+                        } else if (line.startsWith(': ')) {
+                            // Keepalive, ignore
+                        } else if (line.trim() !== '') {
+                            console.log('[SSE] Unexpected line:', line);
                         }
                     }
                 }
+                console.log('[SSE] Finished reading stream, total messages:', messageCount);
             } catch (err) {
+                console.error('[Error]', err);
                 error.textContent = err.message;
                 error.style.display = 'block';
             } finally {
+                console.log('[Cleanup] Resetting form state');
                 loading.style.display = 'none';
                 form.querySelector('button').disabled = false;
             }
