@@ -639,6 +639,21 @@ def create_app():
     return app
 
 
+# Create app instance at module level for WSGI servers (Gunicorn, etc.)
+app = create_app()
+
+# Startup logging
+print("=" * 60)
+print("Podcast Transcriber App Started")
+print(f"Environment: {'Development' if __name__ == '__main__' else 'Production (WSGI)'}")
+print(f"Max upload size: {app.config.get('MAX_CONTENT_LENGTH', 0) / 1024 / 1024}MB")
+print(f"Blueprint registered: {transcriber.name}")
+print(f"Routes registered:")
+for rule in app.url_map.iter_rules():
+    print(f"  {rule.endpoint}: {rule.rule} [{', '.join(rule.methods - {'HEAD', 'OPTIONS'})}]")
+print("=" * 60)
+
 if __name__ == "__main__":
-    app = create_app()
+    # Run with Flask development server
+    print("Starting Flask development server on port 5000...")
     app.run(debug=True, port=5000)
