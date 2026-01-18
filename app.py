@@ -261,8 +261,79 @@ def download_audio(url: str, status_callback: Optional[Callable[[str], None]] = 
     return file_path
 
 
+def process_transcription_from_file(language: str, length: str, file_path: str, filename: str, status_callback: Optional[Callable[[str], None]] = None):
+    """Process transcription from a file path (thread-safe)."""
+    try:
+        msg = f"Processing uploaded file: {filename}"
+        print(msg)
+        if status_callback:
+            status_callback(msg)
+
+        msg = f"File size: {os.path.getsize(file_path) / 1024 / 1024:.1f}MB"
+        print(msg)
+        if status_callback:
+            status_callback(msg)
+
+        transcript = transcribe_audio(file_path, status_callback)
+        summary = summarize(transcript, language, length, status_callback)
+
+        msg = "Processing complete!"
+        print(msg)
+        if status_callback:
+            status_callback(msg)
+
+        # Save to history
+        history_id = add_to_history(filename, language, length, transcript, summary)
+
+        msg = f"Saved to history (ID: {history_id})"
+        print(msg)
+        if status_callback:
+            status_callback(msg)
+
+        return {
+            "transcript": transcript,
+            "summary": summary,
+            "history_id": history_id
+        }
+    except Exception as e:
+        print(f"Error processing file: {e}")
+        raise
+
+
+def process_transcription_from_url(language: str, length: str, url: str, status_callback: Optional[Callable[[str], None]] = None):
+    """Process transcription from a URL (thread-safe)."""
+    file_path = None
+    try:
+        file_path = download_audio(url, status_callback)
+
+        transcript = transcribe_audio(file_path, status_callback)
+        summary = summarize(transcript, language, length, status_callback)
+
+        msg = "Processing complete!"
+        print(msg)
+        if status_callback:
+            status_callback(msg)
+
+        # Save to history
+        history_id = add_to_history(url, language, length, transcript, summary)
+
+        msg = f"Saved to history (ID: {history_id})"
+        print(msg)
+        if status_callback:
+            status_callback(msg)
+
+        return {
+            "transcript": transcript,
+            "summary": summary,
+            "history_id": history_id
+        }
+    finally:
+        if file_path and os.path.exists(file_path):
+            os.remove(file_path)
+
+
 def process_transcription(language: str, length: str, url: str, file, status_callback: Optional[Callable[[str], None]] = None):
-    """Core transcription processing logic."""
+    """Core transcription processing logic (for non-streaming endpoint)."""
     temp_dir = tempfile.mkdtemp()
     file_path = None
     source_name = None
@@ -339,71 +410,89 @@ def transcribe_stream_endpoint():
     url = request.form.get("url", "").strip()
     file = request.files.get("file")
 
+    # Save file to temp location before threading (Flask file objects don't work across threads)
+    saved_file_path = None
+    if file and file.filename:
+        temp_dir = tempfile.mkdtemp()
+        saved_file_path = os.path.join(temp_dir, file.filename)
+        file.save(saved_file_path)
+
     def generate():
         """Generator for SSE stream."""
-        status_messages = []
+        import threading
+        import queue
 
-        def status_callback(message: str):
-            """Collect status message."""
-            status_messages.append(message)
+        message_queue = queue.Queue()
 
-        try:
-            # Send initial status
-            yield f"data: {json.dumps({'status': 'Starting transcription...'})}\n\n"
+        def callback_wrapper(message: str):
+            """Queue messages to be sent."""
+            message_queue.put(message)
 
-            # Create a wrapper to send messages as they're generated
-            import threading
-            import queue
-            message_queue = queue.Queue()
+        # Send initial status
+        yield f"data: {json.dumps({'status': 'Starting transcription...'})}\n\n"
 
-            def callback_wrapper(message: str):
-                message_queue.put(message)
-                status_callback(message)
+        # Process in thread to allow yielding during processing
+        result_holder = {}
+        error_holder = {}
 
-            # Process in thread to allow yielding during processing
-            result_holder = {}
-            error_holder = {}
-
-            def process():
-                try:
-                    result_holder['data'] = process_transcription(language, length, url, file, callback_wrapper)
-                except Exception as e:
-                    error_holder['error'] = e
-                finally:
-                    message_queue.put(None)  # Signal completion
-
-            thread = threading.Thread(target=process)
-            thread.start()
-
-            # Yield messages as they come
-            while True:
-                try:
-                    message = message_queue.get(timeout=0.1)
-                    if message is None:  # Done signal
-                        break
-                    yield f"data: {json.dumps({'status': message})}\n\n"
-                except queue.Empty:
-                    continue
-
-            thread.join()
-
-            # Check for errors
-            if 'error' in error_holder:
-                e = error_holder['error']
-                if isinstance(e, ValueError):
-                    yield f"data: {json.dumps({'error': str(e)})}\n\n"
-                elif isinstance(e, requests.RequestException):
-                    yield f"data: {json.dumps({'error': f'Failed to download: {e}'})}\n\n"
+        def process():
+            try:
+                # Pass file path instead of file object for threaded processing
+                if saved_file_path:
+                    result_holder['data'] = process_transcription_from_file(
+                        language, length, saved_file_path, file.filename, callback_wrapper
+                    )
+                elif url:
+                    result_holder['data'] = process_transcription_from_url(
+                        language, length, url, callback_wrapper
+                    )
                 else:
-                    yield f"data: {json.dumps({'error': str(e)})}\n\n"
+                    raise ValueError("No file or URL provided")
+            except Exception as e:
+                error_holder['error'] = e
+            finally:
+                message_queue.put(None)  # Signal completion
+                # Clean up temp file
+                if saved_file_path and os.path.exists(saved_file_path):
+                    try:
+                        os.remove(saved_file_path)
+                        os.rmdir(os.path.dirname(saved_file_path))
+                    except:
+                        pass
+
+        thread = threading.Thread(target=process)
+        thread.start()
+
+        # Yield messages as they come
+        while True:
+            try:
+                message = message_queue.get(timeout=0.1)
+                if message is None:  # Done signal
+                    break
+                yield f"data: {json.dumps({'status': message})}\n\n"
+            except queue.Empty:
+                # Send keepalive to prevent timeout
+                yield ": keepalive\n\n"
+
+        thread.join()
+
+        # Check for errors
+        if 'error' in error_holder:
+            e = error_holder['error']
+            if isinstance(e, ValueError):
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            elif isinstance(e, requests.RequestException):
+                yield f"data: {json.dumps({'error': f'Failed to download: {e}'})}\n\n"
             else:
-                # Send final result
-                yield f"data: {json.dumps({'status': 'Complete', 'result': result_holder['data']})}\n\n"
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        else:
+            # Send final result
+            yield f"data: {json.dumps({'status': 'Complete', 'result': result_holder['data']})}\n\n"
 
-        except Exception as e:
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
-
-    return Response(stream_with_context(generate()), mimetype='text/event-stream')
+    response = Response(stream_with_context(generate()), mimetype='text/event-stream')
+    response.headers['Cache-Control'] = 'no-cache'
+    response.headers['X-Accel-Buffering'] = 'no'
+    return response
 
 
 @transcriber.route("/history", methods=["GET"])
