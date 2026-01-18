@@ -4,3 +4,4 @@ __pycache__/
 *.txt
 !requirements.txt
 !packages.txt
+transcription_history/

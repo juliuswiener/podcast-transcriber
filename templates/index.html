@@ -118,6 +118,76 @@
             border-radius: 4px;
             display: none;
         }
+        .history-section {
+            background: white;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 2rem;
+        }
+        .history-section h2 {
+            margin-top: 0;
+            color: #333;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .history-toggle {
+            font-size: 0.9rem;
+            cursor: pointer;
+            color: #007bff;
+            text-decoration: underline;
+        }
+        .history-list {
+            display: none;
+        }
+        .history-list.show {
+            display: block;
+        }
+        .history-item {
+            padding: 1rem;
+            margin: 0.5rem 0;
+            background: #f8f9fa;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .history-item:hover {
+            background: #e9ecef;
+        }
+        .history-item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+        .history-item-source {
+            font-weight: 500;
+            color: #333;
+            max-width: 70%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .history-item-time {
+            font-size: 0.85rem;
+            color: #666;
+        }
+        .history-item-meta {
+            font-size: 0.85rem;
+            color: #666;
+            margin-bottom: 0.5rem;
+        }
+        .history-item-preview {
+            font-size: 0.9rem;
+            color: #555;
+            line-height: 1.4;
+        }
+        .empty-history {
+            text-align: center;
+            color: #999;
+            padding: 2rem;
+        }
         .divider {
             text-align: center;
             color: #999;
@@ -133,6 +203,17 @@
 </head>
 <body>
     <h1>🎙️ Podcast Transcriber</h1>
+
+    <div class="history-section">
+        <h2>
+            Recent Transcriptions
+            <span class="history-toggle" id="historyToggle">Show History</span>
+        </h2>
+        <div class="history-list" id="historyList">
+            <div class="empty-history" id="emptyHistory">No transcriptions yet</div>
+            <div id="historyItems"></div>
+        </div>
+    </div>
 
     <div class="upload-form">
         <form id="uploadForm">
@@ -187,6 +268,85 @@
     </div>
 
     <script>
+        // Load history on page load
+        async function loadHistory() {
+            try {
+                const response = await fetch('/history');
+                const history = await response.json();
+
+                const historyItems = document.getElementById('historyItems');
+                const emptyHistory = document.getElementById('emptyHistory');
+
+                if (history.length === 0) {
+                    emptyHistory.style.display = 'block';
+                    historyItems.innerHTML = '';
+                } else {
+                    emptyHistory.style.display = 'none';
+                    historyItems.innerHTML = history.map(item => {
+                        const date = new Date(item.timestamp);
+                        const formattedDate = date.toLocaleString();
+
+                        return `
+                            <div class="history-item" data-id="${item.id}">
+                                <div class="history-item-header">
+                                    <div class="history-item-source" title="${item.source}">${item.source}</div>
+                                    <div class="history-item-time">${formattedDate}</div>
+                                </div>
+                                <div class="history-item-meta">
+                                    Language: ${item.language} | Length: ${item.length}
+                                </div>
+                                <div class="history-item-preview">${item.preview}</div>
+                            </div>
+                        `;
+                    }).join('');
+
+                    // Add click handlers
+                    document.querySelectorAll('.history-item').forEach(item => {
+                        item.addEventListener('click', () => loadHistoryItem(item.dataset.id));
+                    });
+                }
+            } catch (err) {
+                console.error('Failed to load history:', err);
+            }
+        }
+
+        // Load a specific history item
+        async function loadHistoryItem(id) {
+            try {
+                const response = await fetch(`/history/${id}`);
+                const item = await response.json();
+
+                // Populate the results
+                document.getElementById('summaryText').textContent = item.summary;
+                document.getElementById('transcriptText').textContent = item.transcript;
+                document.getElementById('summaryResult').style.display = 'block';
+                document.getElementById('transcriptResult').style.display = 'block';
+
+                // Scroll to results
+                document.getElementById('summaryResult').scrollIntoView({ behavior: 'smooth' });
+            } catch (err) {
+                alert('Failed to load history item: ' + err.message);
+            }
+        }
+
+        // Toggle history visibility
+        document.getElementById('historyToggle').addEventListener('click', () => {
+            const historyList = document.getElementById('historyList');
+            const toggle = document.getElementById('historyToggle');
+
+            if (historyList.classList.contains('show')) {
+                historyList.classList.remove('show');
+                toggle.textContent = 'Show History';
+            } else {
+                historyList.classList.add('show');
+                toggle.textContent = 'Hide History';
+                loadHistory(); // Refresh when showing
+            }
+        });
+
+        // Load history on page load
+        window.addEventListener('DOMContentLoaded', loadHistory);
+
         document.getElementById('uploadForm').addEventListener('submit', async (e) => {
             e.preventDefault();
 
@@ -260,6 +420,9 @@
                                     document.getElementById('transcriptText').textContent = data.result.transcript;
                                     summaryResult.style.display = 'block';
                                     transcriptResult.style.display = 'block';
+
+                                    // Reload history
+                                    loadHistory();
                                 }
                             }
                         }

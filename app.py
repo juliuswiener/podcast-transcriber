@@ -4,6 +4,8 @@ import os
 import tempfile
 import json
 from typing import Callable, Optional
+from datetime import datetime
+from pathlib import Path
 
 import requests
 from flask import Flask, Blueprint, render_template, request, jsonify, Response, stream_with_context
@@ -12,9 +14,61 @@ from openai import OpenAI
 # 25MB limit for Whisper API
 MAX_SIZE = 25 * 1024 * 1024
 
+# History storage
+HISTORY_DIR = Path("transcription_history")
+HISTORY_FILE = HISTORY_DIR / "history.json"
+MAX_HISTORY_ITEMS = 50
+
 client = OpenAI()
 
 transcriber = Blueprint("transcriber", __name__)
+
+
+def load_history():
+    """Load transcription history from file."""
+    if not HISTORY_FILE.exists():
+        return []
+    try:
+        with open(HISTORY_FILE, 'r') as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"Error loading history: {e}")
+        return []
+
+
+def save_history(history):
+    """Save transcription history to file."""
+    try:
+        HISTORY_DIR.mkdir(exist_ok=True)
+        with open(HISTORY_FILE, 'w') as f:
+            json.dump(history, f, indent=2)
+    except Exception as e:
+        print(f"Error saving history: {e}")
+
+
+def add_to_history(source: str, language: str, length: str, transcript: str, summary: str):
+    """Add a new transcription to history."""
+    history = load_history()
+
+    entry = {
+        "id": datetime.now().strftime("%Y%m%d_%H%M%S_%f"),
+        "timestamp": datetime.now().isoformat(),
+        "source": source,
+        "language": language,
+        "length": length,
+        "transcript": transcript,
+        "summary": summary
+    }
+
+    # Add to beginning of list
+    history.insert(0, entry)
+
+    # Keep only MAX_HISTORY_ITEMS
+    if len(history) > MAX_HISTORY_ITEMS:
+        history = history[:MAX_HISTORY_ITEMS]
+
+    save_history(history)
+    return entry["id"]
 
 
 def split_audio(file_path: str, max_size: int = MAX_SIZE, status_callback: Optional[Callable[[str], None]] = None) -> list[str]:
@@ -211,10 +265,12 @@ def process_transcription(language: str, length: str, url: str, file, status_cal
     """Core transcription processing logic."""
     temp_dir = tempfile.mkdtemp()
     file_path = None
+    source_name = None
 
     try:
         if url:
             file_path = download_audio(url, status_callback)
+            source_name = url
         elif file and file.filename:
             msg = f"Saving uploaded file: {file.filename}"
             print(msg)
@@ -222,6 +278,7 @@ def process_transcription(language: str, length: str, url: str, file, status_cal
                 status_callback(msg)
             file_path = os.path.join(temp_dir, file.filename)
             file.save(file_path)
+            source_name = file.filename
             msg = f"File saved: {os.path.getsize(file_path) / 1024 / 1024:.1f}MB"
             print(msg)
             if status_callback:
@@ -237,9 +294,18 @@ def process_transcription(language: str, length: str, url: str, file, status_cal
         if status_callback:
             status_callback(msg)
 
+        # Save to history
+        history_id = add_to_history(source_name, language, length, transcript, summary)
+
+        msg = f"Saved to history (ID: {history_id})"
+        print(msg)
+        if status_callback:
+            status_callback(msg)
+
         return {
             "transcript": transcript,
-            "summary": summary
+            "summary": summary,
+            "history_id": history_id
         }
     finally:
         if file_path and os.path.exists(file_path):
@@ -338,6 +404,41 @@ def transcribe_stream_endpoint():
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
     return Response(stream_with_context(generate()), mimetype='text/event-stream')
+
+
+@transcriber.route("/history", methods=["GET"])
+def get_history():
+    """Get transcription history."""
+    try:
+        history = load_history()
+        # Return summary info only (not full transcripts) for list view
+        summary_list = [
+            {
+                "id": item["id"],
+                "timestamp": item["timestamp"],
+                "source": item["source"],
+                "language": item["language"],
+                "length": item["length"],
+                "preview": item["summary"][:200] + "..." if len(item["summary"]) > 200 else item["summary"]
+            }
+            for item in history
+        ]
+        return jsonify(summary_list)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@transcriber.route("/history/<history_id>", methods=["GET"])
+def get_history_item(history_id):
+    """Get a specific transcription from history."""
+    try:
+        history = load_history()
+        for item in history:
+            if item["id"] == history_id:
+                return jsonify(item)
+        return jsonify({"error": "History item not found"}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 def create_app():
