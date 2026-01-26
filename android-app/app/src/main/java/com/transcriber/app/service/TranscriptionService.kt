@@ -37,13 +37,17 @@ class TranscriptionService {
                     )
                 }
 
-                val mediaType = getMediaType(audioFile)
+                val extension = audioFile.extension.lowercase()
+                val mediaType = getMediaType(extension)
+
+                // Use a filename with proper extension for Whisper to recognize
+                val filename = getFilenameForWhisper(extension)
 
                 val requestBody = MultipartBody.Builder()
                     .setType(MultipartBody.FORM)
                     .addFormDataPart(
                         "file",
-                        audioFile.name,
+                        filename,
                         audioFile.asRequestBody(mediaType.toMediaType())
                     )
                     .addFormDataPart("model", "whisper-1")
@@ -83,16 +87,27 @@ class TranscriptionService {
         }
     }
 
-    private fun getMediaType(file: File): String {
-        return when (file.extension.lowercase()) {
+    private fun getMediaType(extension: String): String {
+        return when (extension) {
             "mp3" -> "audio/mpeg"
-            "mp4", "m4a", "aac" -> "audio/mp4"
+            "mp4", "m4a" -> "audio/mp4"
+            "aac" -> "audio/aac"
             "wav" -> "audio/wav"
             "webm" -> "audio/webm"
-            "ogg", "oga" -> "audio/ogg"
-            "opus" -> "audio/opus"
+            "ogg", "oga", "opus" -> "audio/ogg"  // Opus uses ogg container
             "flac" -> "audio/flac"
             else -> "application/octet-stream"
         }
+    }
+
+    // Whisper expects specific extensions - map to supported ones
+    private fun getFilenameForWhisper(extension: String): String {
+        val whisperExtension = when (extension) {
+            "opus" -> "ogg"  // Send opus as ogg
+            "oga" -> "ogg"
+            "aac" -> "m4a"   // Send aac as m4a
+            else -> extension
+        }
+        return "audio.$whisperExtension"
     }
 }

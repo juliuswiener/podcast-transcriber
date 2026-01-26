@@ -119,17 +119,17 @@ class TranscriberViewModel : ViewModel() {
             "audio/mpeg", "audio/mp3" -> "mp3"
             "audio/mp4", "audio/m4a", "audio/x-m4a" -> "m4a"
             "audio/wav", "audio/x-wav" -> "wav"
-            "audio/ogg", "audio/vorbis" -> "ogg"
-            "audio/opus" -> "opus"
+            "audio/ogg", "audio/vorbis", "application/ogg" -> "ogg"
+            "audio/opus", "application/opus" -> "opus"
             "audio/flac", "audio/x-flac" -> "flac"
             "audio/webm" -> "webm"
-            "audio/aac" -> "aac"
+            "audio/aac", "audio/x-aac" -> "aac"
             else -> null
         }
 
         if (extensionFromMime != null) return extensionFromMime
 
-        // Try to get from the URI path
+        // Try to get from the URI path or display name
         val path = uri.path ?: ""
         val lastDot = path.lastIndexOf('.')
         if (lastDot >= 0 && lastDot < path.length - 1) {
