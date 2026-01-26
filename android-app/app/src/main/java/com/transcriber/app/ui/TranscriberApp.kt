@@ -2,6 +2,7 @@ package com.transcriber.app.ui
 
 import android.Manifest
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
@@ -230,8 +231,18 @@ fun SettingsScreen(
     onApiKeyChange: (String) -> Unit,
     onBack: () -> Unit
 ) {
+    val context = LocalContext.current
     var showApiKey by remember { mutableStateOf(false) }
     var tempApiKey by remember { mutableStateOf(apiKey) }
+    var saved by remember { mutableStateOf(false) }
+
+    // Show saved indicator
+    LaunchedEffect(saved) {
+        if (saved) {
+            Toast.makeText(context, "API Key saved", Toast.LENGTH_SHORT).show()
+            saved = false
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -290,7 +301,10 @@ fun SettingsScreen(
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     Button(
-                        onClick = { onApiKeyChange(tempApiKey) },
+                        onClick = {
+                            onApiKeyChange(tempApiKey)
+                            saved = true
+                        },
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text("Save API Key")

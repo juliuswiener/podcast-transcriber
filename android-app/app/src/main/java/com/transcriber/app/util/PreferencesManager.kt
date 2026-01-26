@@ -9,11 +9,13 @@ object PreferencesManager {
     private const val KEY_API_KEY = "openai_api_key"
 
     private fun getPreferences(context: Context): SharedPreferences {
-        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        // Use applicationContext to ensure consistent preferences across activity lifecycle
+        return context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     }
 
     fun saveApiKey(context: Context, apiKey: String) {
-        getPreferences(context).edit().putString(KEY_API_KEY, apiKey).apply()
+        // Use commit() instead of apply() to ensure synchronous write
+        getPreferences(context).edit().putString(KEY_API_KEY, apiKey).commit()
     }
 
     fun getApiKey(context: Context): String {
@@ -21,6 +23,6 @@ object PreferencesManager {
     }
 
     fun clearApiKey(context: Context) {
-        getPreferences(context).edit().remove(KEY_API_KEY).apply()
+        getPreferences(context).edit().remove(KEY_API_KEY).commit()
     }
 }
