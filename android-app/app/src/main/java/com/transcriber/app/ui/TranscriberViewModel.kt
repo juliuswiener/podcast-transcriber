@@ -87,9 +87,12 @@ class TranscriberViewModel : ViewModel() {
             _uiState.update { it.copy(transcriptionState = TranscriptionState.Loading) }
 
             try {
-                // Copy file to cache directory
+                // Get the original file extension from the URI
+                val extension = getFileExtension(context, uri)
+
+                // Copy file to cache directory with proper extension
                 val inputStream = context.contentResolver.openInputStream(uri)
-                val tempFile = File(context.cacheDir, "audio_${System.currentTimeMillis()}.tmp")
+                val tempFile = File(context.cacheDir, "audio_${System.currentTimeMillis()}.$extension")
 
                 inputStream?.use { input ->
                     tempFile.outputStream().use { output ->
@@ -107,6 +110,34 @@ class TranscriberViewModel : ViewModel() {
                 }
             }
         }
+    }
+
+    private fun getFileExtension(context: Context, uri: Uri): String {
+        // Try to get extension from content resolver
+        val mimeType = context.contentResolver.getType(uri)
+        val extensionFromMime = when (mimeType) {
+            "audio/mpeg", "audio/mp3" -> "mp3"
+            "audio/mp4", "audio/m4a", "audio/x-m4a" -> "m4a"
+            "audio/wav", "audio/x-wav" -> "wav"
+            "audio/ogg", "audio/vorbis" -> "ogg"
+            "audio/opus" -> "opus"
+            "audio/flac", "audio/x-flac" -> "flac"
+            "audio/webm" -> "webm"
+            "audio/aac" -> "aac"
+            else -> null
+        }
+
+        if (extensionFromMime != null) return extensionFromMime
+
+        // Try to get from the URI path
+        val path = uri.path ?: ""
+        val lastDot = path.lastIndexOf('.')
+        if (lastDot >= 0 && lastDot < path.length - 1) {
+            return path.substring(lastDot + 1).lowercase()
+        }
+
+        // Default to mp3 if we can't determine
+        return "mp3"
     }
 
     private suspend fun transcribeAudioFile(file: File) {

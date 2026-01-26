@@ -86,12 +86,13 @@ class TranscriptionService {
     private fun getMediaType(file: File): String {
         return when (file.extension.lowercase()) {
             "mp3" -> "audio/mpeg"
-            "mp4", "m4a" -> "audio/mp4"
+            "mp4", "m4a", "aac" -> "audio/mp4"
             "wav" -> "audio/wav"
             "webm" -> "audio/webm"
-            "ogg" -> "audio/ogg"
+            "ogg", "oga" -> "audio/ogg"
+            "opus" -> "audio/opus"
             "flac" -> "audio/flac"
-            else -> "audio/mpeg"
+            else -> "application/octet-stream"
         }
     }
 }

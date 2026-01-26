@@ -1,7 +1,6 @@
 package com.transcriber.app.ui
 
 import android.Manifest
-import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -14,7 +13,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,10 +24,13 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.transcriber.app.service.TranscriptionState
+import com.transcriber.app.util.PreferencesManager
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -34,8 +38,44 @@ fun TranscriberApp(
     viewModel: TranscriberViewModel = viewModel()
 ) {
     val context = LocalContext.current
-    val clipboardManager = LocalClipboardManager.current
     val uiState by viewModel.uiState.collectAsState()
+    var showSettings by remember { mutableStateOf(false) }
+
+    // Load API key from preferences on first launch
+    LaunchedEffect(Unit) {
+        val savedApiKey = PreferencesManager.getApiKey(context)
+        if (savedApiKey.isNotBlank()) {
+            viewModel.updateApiKey(savedApiKey)
+        }
+    }
+
+    if (showSettings) {
+        SettingsScreen(
+            apiKey = uiState.apiKey,
+            onApiKeyChange = {
+                viewModel.updateApiKey(it)
+                PreferencesManager.saveApiKey(context, it)
+            },
+            onBack = { showSettings = false }
+        )
+    } else {
+        MainScreen(
+            viewModel = viewModel,
+            uiState = uiState,
+            onSettingsClick = { showSettings = true }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MainScreen(
+    viewModel: TranscriberViewModel,
+    uiState: TranscriberUiState,
+    onSettingsClick: () -> Unit
+) {
+    val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
 
     var hasRecordPermission by remember { mutableStateOf(false) }
 
@@ -45,8 +85,9 @@ fun TranscriberApp(
         hasRecordPermission = isGranted
     }
 
+    // Use OpenDocument for better file picker compatibility
     val filePickerLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetContent()
+        ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         uri?.let { viewModel.transcribeFile(context, it) }
     }
@@ -64,6 +105,15 @@ fun TranscriberApp(
                         fontWeight = FontWeight.Bold
                     )
                 },
+                actions = {
+                    IconButton(onClick = onSettingsClick) {
+                        Icon(
+                            imageVector = Icons.Filled.Settings,
+                            contentDescription = "Settings",
+                            tint = MaterialTheme.colorScheme.onPrimary
+                        )
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     titleContentColor = MaterialTheme.colorScheme.onPrimary
@@ -79,13 +129,32 @@ fun TranscriberApp(
                 .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // API Key Input
-            ApiKeySection(
-                apiKey = uiState.apiKey,
-                onApiKeyChange = { viewModel.updateApiKey(it) }
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
+            // Show warning if no API key
+            if (uiState.apiKey.isBlank()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Please set your OpenAI API key in Settings",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(onClick = onSettingsClick) {
+                            Text("Settings")
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
 
             // Input Mode Selection
             Text(
@@ -115,12 +184,18 @@ fun TranscriberApp(
                     }
                 )
 
-                // File Picker Button
+                // File Picker Button - accepts all audio types including opus
                 FilePickerButton(
                     enabled = uiState.apiKey.isNotBlank() &&
                               uiState.transcriptionState !is TranscriptionState.Loading &&
                               !uiState.isRecording,
-                    onClick = { filePickerLauncher.launch("audio/*") }
+                    onClick = {
+                        filePickerLauncher.launch(arrayOf(
+                            "audio/*",
+                            "application/ogg",
+                            "application/opus"
+                        ))
+                    }
                 )
             }
 
@@ -148,37 +223,114 @@ fun TranscriberApp(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ApiKeySection(
+fun SettingsScreen(
     apiKey: String,
-    onApiKeyChange: (String) -> Unit
+    onApiKeyChange: (String) -> Unit,
+    onBack: () -> Unit
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp)
-    ) {
+    var showApiKey by remember { mutableStateOf(false) }
+    var tempApiKey by remember { mutableStateOf(apiKey) }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Settings") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back"
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimary
+                )
+            )
+        }
+    ) { paddingValues ->
         Column(
-            modifier = Modifier.padding(16.dp)
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .padding(16.dp)
         ) {
-            Text(
-                text = "OpenAI API Key",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            OutlinedTextField(
-                value = apiKey,
-                onValueChange = onApiKeyChange,
+            Card(
                 modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("sk-...") },
-                singleLine = true
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = "Your API key is stored locally and used only for transcription.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp)
+                ) {
+                    Text(
+                        text = "OpenAI API Key",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = tempApiKey,
+                        onValueChange = { tempApiKey = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("sk-...") },
+                        singleLine = true,
+                        visualTransformation = if (showApiKey)
+                            VisualTransformation.None
+                        else
+                            PasswordVisualTransformation(),
+                        trailingIcon = {
+                            TextButton(onClick = { showApiKey = !showApiKey }) {
+                                Text(if (showApiKey) "Hide" else "Show")
+                            }
+                        }
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = { onApiKeyChange(tempApiKey) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Save API Key")
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Your API key is stored locally on your device and used only for transcription requests to OpenAI.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp)
+                ) {
+                    Text(
+                        text = "Supported Audio Formats",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "MP3, M4A, WAV, FLAC, OGG, Opus, WebM, AAC",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Maximum file size: 25MB",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
         }
     }
 }
