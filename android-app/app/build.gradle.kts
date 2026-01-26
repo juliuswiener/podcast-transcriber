@@ -80,6 +80,9 @@ dependencies {
     // JSON parsing
     implementation("org.json:json:20231013")
 
+    // FFmpeg for audio conversion (audio-only build to minimize size)
+    implementation("com.arthenica:ffmpeg-kit-audio:6.0-2")
+
     // Debug
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
