@@ -2,8 +2,6 @@ package com.transcriber.app.util
 
 import android.content.Context
 import android.content.SharedPreferences
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKey
 
 object PreferencesManager {
 
