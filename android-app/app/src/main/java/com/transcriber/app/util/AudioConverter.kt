@@ -7,32 +7,44 @@ import android.media.MediaMuxer
 import java.io.File
 import java.nio.ByteBuffer
 
+sealed class ConversionResult {
+    data class Success(val file: File) : ConversionResult()
+    data class Error(val message: String) : ConversionResult()
+}
+
 object AudioConverter {
+
+    // Formats natively supported by Whisper API
+    private val SUPPORTED_FORMATS = listOf("mp3", "mp4", "m4a", "wav", "webm", "ogg", "flac", "mpeg", "mpga", "oga")
 
     /**
      * Converts audio file to a format compatible with Whisper API.
-     * Returns the converted file, or the original file if no conversion needed.
+     * Returns ConversionResult.Success with the file (converted or original),
+     * or ConversionResult.Error if the format is not supported.
      */
-    fun convertIfNeeded(inputFile: File, cacheDir: File): File {
+    fun convertIfNeeded(inputFile: File, cacheDir: File): ConversionResult {
         val extension = inputFile.extension.lowercase()
 
         // These formats are natively supported by Whisper
-        if (extension in listOf("mp3", "mp4", "m4a", "wav", "webm", "ogg", "flac", "mpeg", "mpga")) {
-            return inputFile
+        if (extension in SUPPORTED_FORMATS) {
+            return ConversionResult.Success(inputFile)
         }
 
         // AAC and Opus need conversion
         return when (extension) {
-            "aac" -> convertToM4a(inputFile, cacheDir)
-            "opus" -> convertToOgg(inputFile, cacheDir)
-            else -> inputFile
+            "aac" -> convertAacToM4a(inputFile, cacheDir)
+            "opus" -> convertOpusToOgg(inputFile, cacheDir)
+            else -> ConversionResult.Error(
+                "Unsupported format: .$extension. Supported formats: ${SUPPORTED_FORMATS.joinToString(", ") { ".$it" }}"
+            )
         }
     }
 
     /**
-     * Wraps raw AAC audio into an M4A container using MediaMuxer
+     * Attempts to convert AAC to M4A using MediaMuxer.
+     * This works for AAC files that are already in a container (like ADTS).
      */
-    private fun convertToM4a(inputFile: File, cacheDir: File): File {
+    private fun convertAacToM4a(inputFile: File, cacheDir: File): ConversionResult {
         val outputFile = File(cacheDir, "converted_${System.currentTimeMillis()}.m4a")
 
         try {
@@ -54,9 +66,11 @@ object AudioConverter {
             }
 
             if (audioTrackIndex == -1 || audioFormat == null) {
-                // Can't extract audio, return original
                 extractor.release()
-                return inputFile
+                outputFile.delete()
+                return ConversionResult.Error(
+                    "Cannot process this AAC file. Please convert it to MP3 or M4A using a converter app first."
+                )
             }
 
             extractor.selectTrack(audioTrackIndex)
@@ -87,27 +101,26 @@ object AudioConverter {
             muxer.release()
             extractor.release()
 
-            return outputFile
+            return ConversionResult.Success(outputFile)
         } catch (e: Exception) {
-            // If conversion fails, return original file
             outputFile.delete()
-            return inputFile
+            return ConversionResult.Error(
+                "Cannot convert AAC file: ${e.message}. Please convert it to MP3 or M4A using a converter app first."
+            )
         }
     }
 
     /**
-     * For Opus files, we just rename to .ogg since Opus is typically in OGG container
-     * and Whisper supports OGG natively
+     * For Opus files, copy with .ogg extension since Opus is typically in OGG container
      */
-    private fun convertToOgg(inputFile: File, cacheDir: File): File {
-        // Opus files are usually already in OGG container, just copy with .ogg extension
+    private fun convertOpusToOgg(inputFile: File, cacheDir: File): ConversionResult {
         val outputFile = File(cacheDir, "converted_${System.currentTimeMillis()}.ogg")
-        try {
+        return try {
             inputFile.copyTo(outputFile, overwrite = true)
-            return outputFile
+            ConversionResult.Success(outputFile)
         } catch (e: Exception) {
             outputFile.delete()
-            return inputFile
+            ConversionResult.Error("Failed to process Opus file: ${e.message}")
         }
     }
 }

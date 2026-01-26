@@ -8,6 +8,7 @@ import com.transcriber.app.service.AudioRecorder
 import com.transcriber.app.service.TranscriptionService
 import com.transcriber.app.service.TranscriptionState
 import com.transcriber.app.util.AudioConverter
+import com.transcriber.app.util.ConversionResult
 import com.transcriber.app.util.PreferencesManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -105,9 +106,17 @@ class TranscriberViewModel : ViewModel() {
                 }
 
                 // Convert if needed (AAC -> M4A, etc.)
-                convertedFile = AudioConverter.convertIfNeeded(tempFile, context.cacheDir)
-
-                transcribeAudioFile(convertedFile)
+                when (val conversionResult = AudioConverter.convertIfNeeded(tempFile, context.cacheDir)) {
+                    is ConversionResult.Success -> {
+                        convertedFile = conversionResult.file
+                        transcribeAudioFile(convertedFile)
+                    }
+                    is ConversionResult.Error -> {
+                        _uiState.update {
+                            it.copy(transcriptionState = TranscriptionState.Error(conversionResult.message))
+                        }
+                    }
+                }
             } catch (e: Exception) {
                 _uiState.update {
                     it.copy(transcriptionState = TranscriptionState.Error("Failed to read file: ${e.message}"))
@@ -115,7 +124,7 @@ class TranscriberViewModel : ViewModel() {
             } finally {
                 // Clean up temp files
                 tempFile?.delete()
-                if (convertedFile != tempFile) {
+                if (convertedFile != null && convertedFile != tempFile) {
                     convertedFile?.delete()
                 }
             }
