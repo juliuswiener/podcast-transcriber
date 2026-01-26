@@ -90,8 +90,7 @@ class TranscriptionService {
     private fun getMediaType(extension: String): String {
         return when (extension) {
             "mp3" -> "audio/mpeg"
-            "mp4", "m4a" -> "audio/mp4"
-            "aac" -> "audio/aac"
+            "mp4", "m4a", "aac" -> "audio/mp4"  // AAC needs mp4 container type
             "wav" -> "audio/wav"
             "webm" -> "audio/webm"
             "ogg", "oga", "opus" -> "audio/ogg"  // Opus uses ogg container

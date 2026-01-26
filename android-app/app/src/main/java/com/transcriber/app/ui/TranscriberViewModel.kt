@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.transcriber.app.service.AudioRecorder
 import com.transcriber.app.service.TranscriptionService
 import com.transcriber.app.service.TranscriptionState
+import com.transcriber.app.util.AudioConverter
 import com.transcriber.app.util.PreferencesManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -86,13 +87,16 @@ class TranscriberViewModel : ViewModel() {
         viewModelScope.launch {
             _uiState.update { it.copy(transcriptionState = TranscriptionState.Loading) }
 
+            var tempFile: File? = null
+            var convertedFile: File? = null
+
             try {
                 // Get the original file extension from the URI
                 val extension = getFileExtension(context, uri)
 
                 // Copy file to cache directory with proper extension
                 val inputStream = context.contentResolver.openInputStream(uri)
-                val tempFile = File(context.cacheDir, "audio_${System.currentTimeMillis()}.$extension")
+                tempFile = File(context.cacheDir, "audio_${System.currentTimeMillis()}.$extension")
 
                 inputStream?.use { input ->
                     tempFile.outputStream().use { output ->
@@ -100,13 +104,19 @@ class TranscriberViewModel : ViewModel() {
                     }
                 }
 
-                transcribeAudioFile(tempFile)
+                // Convert if needed (AAC -> M4A, etc.)
+                convertedFile = AudioConverter.convertIfNeeded(tempFile, context.cacheDir)
 
-                // Clean up temp file after transcription
-                tempFile.delete()
+                transcribeAudioFile(convertedFile)
             } catch (e: Exception) {
                 _uiState.update {
                     it.copy(transcriptionState = TranscriptionState.Error("Failed to read file: ${e.message}"))
+                }
+            } finally {
+                // Clean up temp files
+                tempFile?.delete()
+                if (convertedFile != tempFile) {
+                    convertedFile?.delete()
                 }
             }
         }
