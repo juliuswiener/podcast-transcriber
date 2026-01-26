@@ -86,9 +86,9 @@ fun MainScreen(
         hasRecordPermission = isGranted
     }
 
-    // Use OpenDocument for better file picker compatibility
+    // Use GetContent for simpler file picker that shows audio files
     val filePickerLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
+        ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         uri?.let { viewModel.transcribeFile(context, it) }
     }
@@ -185,17 +185,14 @@ fun MainScreen(
                     }
                 )
 
-                // File Picker Button - accepts all audio types including opus
+                // File Picker Button - shows audio files
                 FilePickerButton(
                     enabled = uiState.apiKey.isNotBlank() &&
                               uiState.transcriptionState !is TranscriptionState.Loading &&
                               !uiState.isRecording,
                     onClick = {
-                        filePickerLauncher.launch(arrayOf(
-                            "audio/*",
-                            "application/ogg",
-                            "application/opus"
-                        ))
+                        // audio/* shows all audio files in the picker
+                        filePickerLauncher.launch("audio/*")
                     }
                 )
             }
